@@ -236,6 +236,23 @@ def load_employee_database():
             "manager_id": "MGR001",
             "department": "Business",
             "assigned_learning_path": None
+        },
+        "EMP999000": {
+            "employee_id": "EMP999000",
+            "name": "Jane Doe",
+            "current_role": "Software Engineer",
+            "skills": ["Python", "Java", "SQL"],
+            "completed_courses": ["Object-Oriented Programming"],
+            "career_goals": ["Senior Software Engineer", "Tech Lead"],
+            "skill_proficiency": {
+                "Python": "Intermediate",
+                "Java": "Intermediate",
+                "SQL": "Beginner"
+            },
+            "experience_level": "Mid-level",
+            "manager_id": "MGR002",
+            "department": "Engineering",
+            "assigned_learning_path": None
         }
     }
 
@@ -245,7 +262,7 @@ def initialize_manager_session_state():
         st.session_state.employee_database = load_employee_database()
     
     if 'current_manager_id' not in st.session_state:
-        st.session_state.current_manager_id = "MGR001"
+        st.session_state.current_manager_id = "MGR001" # Default manager
     
     if 'selected_employee_id' not in st.session_state:
         st.session_state.selected_employee_id = None
@@ -310,6 +327,7 @@ def manager_portal_page():
     )
     
     if selected_employee_display:
+        
         selected_employee_id = employee_options[selected_employee_display]
         st.session_state.selected_employee_id = selected_employee_id
         
@@ -577,7 +595,8 @@ def display_assigned_learning_path(employee_id, employee_data):
     st.markdown(f"### 📚 Current Learning Path for {employee_data['name']}")
     
     assigned_path = employee_data.get('assigned_learning_path')
-    
+    print("yeh par hai")
+    print(assigned_path)
     if not assigned_path:
         st.info("No learning path assigned yet. Generate one in the 'Generate Learning Path' tab.")
         return
@@ -648,9 +667,12 @@ def sync_employee_learning_path(employee_id, learning_path):
     if employee_id and employee_id in st.session_state.employee_database:
         # Update the employee database with the new learning path
         st.session_state.employee_database[employee_id]['assigned_learning_path'] = learning_path
-        
+        #print("YEH BHI HOGAYA")
+        #st.session_state.employee_learning_paths[employee_id] = learning_path
         # Also update the current session learning path
-        st.session_state.learning_path = learning_path
+        # Only update if the current employee profile matches the one being synced
+        if st.session_state.employee_profile.get('employee_id') == employee_id:
+            st.session_state.learning_path = learning_path
         
         return True
     return False
@@ -659,15 +681,108 @@ def get_current_employee_id():
     """Get the current employee ID based on the employee profile"""
     if 'employee_profile' in st.session_state:
         return st.session_state.employee_profile.get('employee_id')
+    # Fallback for manager/admin portal if employee_profile isn't set for the session
     return st.session_state.get('selected_employee_id')
 
 
+# --- New Admin/HR Portal Functions ---
+def admin_hr_portal_page():
+    """Admin/HR Portal page to manage all employees and generate default learning paths."""
+    st.title("🏢 Admin/HR Portal - Employee Learning Overview")
+    st.markdown("*Manage all employee profiles and assign default learning paths.*")
+
+    # Display all employees
+    st.markdown("### 👥 All Employees Overview")
+    employees_df = pd.DataFrame(st.session_state.employee_database.values())
+    
+    # Select relevant columns for display
+    display_cols = ['employee_id', 'name', 'current_role', 'department', 'manager_id']
+    if not employees_df.empty:
+        st.dataframe(employees_df[display_cols].set_index('employee_id'), use_container_width=True)
+    else:
+        st.info("No employee data available.")
+
+    st.markdown("---")
+    st.markdown("### 🚀 Generate Default Learning Paths")
+
+    default_path_description = st.text_area(
+        "Default Learning Path Focus (e.g., 'Foundational skills for all roles', 'Data Literacy for everyone')",
+        value="Foundational skills for all employees to enhance data literacy and basic project management.",
+        key="default_lp_focus"
+    )
+
+    if st.button("✨ Generate Default Learning Paths for ALL Employees", type="primary", key="generate_all_default_lp"):
+        with st.spinner("Generating default learning paths for all employees... This may take a moment."):
+            generated_count = 0
+            for emp_id, emp_data in st.session_state.employee_database.items():
+                # Create a default learning preference for the general path
+                default_learning_preferences = LearningPreference(
+                    time_available_weeks=12,  # 12-week default
+                    preferred_learning_style="Mixed",
+                    difficulty_preference="Progressive",
+                    specific_skills_requested=["Data Analysis", "Project Management", "Communication"], # Generic skills
+                    learning_urgency="Medium"
+                )
+                
+                # Generate a learning path based on the employee's current role and the default focus
+                # Use a copy of employee data to avoid modifying it during generation
+                employee_data_copy = emp_data.copy()
+                employee_data_copy["career_goals"] = [employee_data_copy["current_role"]] # Focus on current role
+                
+                default_path = generate_enhanced_learning_path(
+                    employee_data_copy,
+                    default_learning_preferences,
+                    specific_requirements={"mentioned_skills": default_learning_preferences.specific_skills_requested}
+                )
+                
+                if default_path:
+                    assign_learning_path_to_employee(emp_id, default_path)
+                    generated_count += 1
+            
+            st.success(f"✅ Successfully generated default learning paths for {generated_count} employees!")
+            st.rerun()
+    
+    st.markdown("---")
+    st.markdown("### 🔍 Manage Individual Employee Learning Paths")
+
+    # Individual employee selection (similar to manager portal)
+    all_employees = st.session_state.employee_database
+    if not all_employees:
+        st.info("No employees to manage individually.")
+        return
+
+    employee_options = {f"{emp_data['name']} ({emp_id})": emp_id 
+                       for emp_id, emp_data in all_employees.items()}
+    
+    selected_employee_display = st.selectbox(
+        "Choose an employee to manage their learning path:",
+        options=list(employee_options.keys()),
+        key="admin_employee_selector"
+    )
+    
+    if selected_employee_display:
+        selected_employee_id = employee_options[selected_employee_display]
+        st.session_state.selected_employee_id = selected_employee_id # Set for reuse in other functions
+        
+        employee_data = st.session_state.employee_database[selected_employee_id]
+        
+        # Display employee information in tabs (reusing manager portal functions)
+        tab1, tab2, tab3 = st.tabs(["📋 Employee Profile", "🎯 Generate Learning Path", "📚 Assigned Learning Path"])
+        
+        with tab1:
+            display_and_edit_employee_profile(selected_employee_id, employee_data)
+        
+        with tab2:
+            generate_learning_path_for_employee(selected_employee_id, employee_data)
+        
+        with tab3:
+            display_assigned_learning_path(selected_employee_id, employee_data)
 
 
 # 5. Modify the main function to add page navigation
 
 def main_with_navigation():
-    """Main function with navigation between Manager and Employee portals"""
+    """Main function with navigation between Manager, Employee, and Admin/HR portals"""
     
     # Initialize both session states
     initialize_session_state()
@@ -679,22 +794,33 @@ def main_with_navigation():
     
     portal_mode = st.sidebar.radio(
         "Select Portal:",
-        ["👨‍💼 Manager Portal", "👤 Employee Portal"],
-        index=0 if not st.session_state.manager_mode else 0
+        ["🏢 Admin/HR Portal", "👨‍💼 Manager Portal", "👤 Employee Portal"],
+        index=0 if not st.session_state.manager_mode else 0 # Default to Manager or current
     )
     
+    # Update manager_mode based on selection for consistency
     st.session_state.manager_mode = (portal_mode == "👨‍💼 Manager Portal")
+    st.session_state.admin_mode = (portal_mode == "🏢 Admin/HR Portal") # New admin mode
     
-    if st.session_state.manager_mode:
+    if st.session_state.admin_mode:
+        admin_hr_portal_page()
+    elif st.session_state.manager_mode:
         manager_portal_page()
     else:
         # Enhanced employee portal with better synchronization
         
         # If no employee profile exists, try to load from selected employee
-        if 'employee_profile' not in st.session_state or not st.session_state.employee_profile:
+        # This part ensures that if a manager/admin selects an employee,
+        # that employee's profile is loaded when switching to Employee Portal
+        if 'employee_profile' not in st.session_state or not st.session_state.employee_profile.get('employee_id'):
             if st.session_state.selected_employee_id and st.session_state.selected_employee_id in st.session_state.employee_database:
                 st.session_state.employee_profile = st.session_state.employee_database[st.session_state.selected_employee_id].copy()
-        
+            else:
+                # Fallback to a default employee if no specific one is selected
+                default_emp_id = list(st.session_state.employee_database.keys())[0]
+                st.session_state.employee_profile = st.session_state.employee_database[default_emp_id].copy()
+
+
         # Sync learning path from employee database if available
         current_employee_id = get_current_employee_id()
         if current_employee_id and current_employee_id in st.session_state.employee_database:
@@ -710,7 +836,7 @@ def main_with_navigation():
                 if not any("manager assigned" in msg.get("content", "") for msg in st.session_state.messages):
                     st.session_state.messages.append({
                         "role": "assistant",
-                        "content": f"👋 Welcome back! Your manager has assigned you a personalized learning path. You can view it on the right panel and chat with me to modify or get more information about it."
+                        "content": f"👋 Welcome back! Your manager/admin has assigned you a personalized learning path. You can view it on the right panel and chat with me to modify or get more information about it."
                     })
         
         enhanced_main()
@@ -726,7 +852,7 @@ def generate_enhanced_learning_path_with_sync(employee_profile, learning_prefere
     learning_path = generate_enhanced_learning_path(employee_profile, learning_preferences,specific_requirements)
     
     # Sync with employee database if employee ID is available
-    employee_id = get_current_employee_id()
+    employee_id = employee_profile.get('employee_id') # Use the employee_id from the profile passed
     if employee_id and learning_path:
         sync_employee_learning_path(employee_id, learning_path)
     
@@ -746,7 +872,7 @@ def generate_dynamic_learning_report(learning_path, employee_profile, learning_p
     employee_name = employee_profile.get('name', 'Employee')
     current_role = employee_profile.get('current_role', 'Current Role')
     
-    target_role = employee_profile.get('career_goals', 'Target Role')
+    target_role = employee_profile.get('career_goals', ['Target Role']) # Ensure it's a list
     
     # Calculate metrics
     total_weeks = learning_path.get("total_duration_weeks", 12)
@@ -1187,7 +1313,6 @@ def generate_dynamic_learning_report(learning_path, employee_profile, learning_p
 </head>
 <body>
     <div class="container">
-        <!-- Header Section -->
         <div class="header fade-in">
             <h1>🎓 Learning Path Report</h1>
             <p><strong>{employee_name}</strong> • {current_role} → {target_role[0]}</p>
@@ -1204,7 +1329,6 @@ def generate_dynamic_learning_report(learning_path, employee_profile, learning_p
             </div>
         </div>
 
-        <!-- Section 1: Employee Profile -->
         <div class="section fade-in">
             <h2 class="section-title">👤 Detailed Employee Profile</h2>
             <div class="metrics-grid">
@@ -1216,7 +1340,7 @@ def generate_dynamic_learning_report(learning_path, employee_profile, learning_p
                 <div class="metric-card interactive-tooltip" data-tooltip="Target career goal">
                     <span class="metric-value">🎯</span>
                     <span class="metric-label">Target Role</span>
-                    <div>{target_role}</div>
+                    <div>{target_role[0]}</div>
                 </div>
                 <div class="metric-card interactive-tooltip" data-tooltip="Available learning budget">
                     <span class="metric-value">${budget:,}</span>
@@ -1237,7 +1361,6 @@ def generate_dynamic_learning_report(learning_path, employee_profile, learning_p
             </div>
         </div>
 
-        <!-- Section 2: Skill Gap Analysis -->
         <div class="section fade-in">
             <div class="skill-gap-analysis">
                 <div class="icon-large" style="text-align: center;">📊</div>
@@ -1266,7 +1389,6 @@ def generate_dynamic_learning_report(learning_path, employee_profile, learning_p
             </div>
         </div>
 
-        <!-- Section 3: Learning Timeline -->
         <div class="section fade-in">
             <h2 class="section-title">⏰ Comprehensive {total_weeks}-Week Learning Timeline</h2>
             
@@ -1275,7 +1397,6 @@ def generate_dynamic_learning_report(learning_path, employee_profile, learning_p
             </div>
         </div>
 
-        <!-- Section 4: Course Details -->
         <div class="section fade-in">
             <h2 class="section-title">📚 Course Portfolio</h2>
             
@@ -1290,14 +1411,10 @@ def generate_dynamic_learning_report(learning_path, employee_profile, learning_p
             </div>
         </div>
 
-        <!-- Section 5: Success Metrics & ROI -->
         <div class="section fade-in">
             <h2 class="section-title">💼 Business Impact & ROI Analysis</h2>
             
-            <div class="roi-highlight">
-                <h3>💰 Financial Impact</h3>
-                <p><strong>Investment:</strong> ${estimated_cost:,} | <strong>ROI:</strong> {roi_percentage:.0f}% | <strong>Cost Avoidance:</strong> $45,000</p>
-            </div>
+            
             
             <div class="metrics-grid">
                 <div class="metric-card" style="background: linear-gradient(135deg, #48bb78, #38a169);">
@@ -1335,7 +1452,6 @@ def generate_dynamic_learning_report(learning_path, employee_profile, learning_p
             </table>
         </div>
 
-        <!-- Section 6: Milestone Checkpoints -->
         <div class="section fade-in">
             <h2 class="section-title">🏆 Milestone Checkpoints</h2>
             
@@ -1353,7 +1469,7 @@ def generate_dynamic_learning_report(learning_path, employee_profile, learning_p
                     <p><strong>Skills Gained:</strong> Advanced techniques, practical application</p>
                 </div>
                 <div class="timeline-item">
-                    <h4>Week {st.session_state.learning_path.get("total_duration_weeks", 0)} Checkpoint 🎓</h4>
+                    <h4>Week {total_weeks} Checkpoint 🎓</h4>
                     <p><strong>Goal:</strong> Final assessment and role readiness evaluation</p>
                     <p><strong>Deliverable:</strong> Comprehensive capstone project</p>
                     <p><strong>Skills Gained:</strong> Expert-level proficiency, leadership capabilities</p>
@@ -1423,7 +1539,7 @@ def generate_skill_proficiency_data(skills):
             'current': current,
             'target': target,
             'post_training': post_training,
-            'gap_closure': ((post_training - current) / (target - current) * 100) if target > current else 100
+            'gap_closure': ((post_training - current) / (target) * 100) if target > current else 100
         })
     
     return skill_data
@@ -1577,7 +1693,7 @@ def generate_udemy_courses_html(courses):
             <p><strong>Price:</strong> {course.get('price', 'N/A')}</p>
             <p><strong>Duration:</strong> {course.get('duration', 'N/A')}</p>
             <p><strong>Level:</strong> {course.get('level', 'Intermediate')}</p>
-            <small style="color: #666;">{course.get('description', 'Comprehensive course content')[:100]}...</small>
+            <small style="color: #666;">{course.get('description', 'No description available.')[:100]}...</small>
         </div>
         """
     
@@ -1650,7 +1766,7 @@ def generate_competency_table_html(skill_data):
 
 # Enhanced learning path management in employee portal
 def enhanced_learning_path_management():
-    """Enhanced learning path management with database synchronization"""
+    """Enhanced learning path management with database synchronization and course selection"""
     
     if st.session_state.learning_path:
         st.markdown("### 📚 Your Learning Path")
@@ -1664,71 +1780,109 @@ def enhanced_learning_path_management():
             is_manager_assigned = (db_path is not None)
         
         if is_manager_assigned:
-            st.info("📋 This learning path was assigned by your manager and is synchronized across both portals.")
+            st.info("📋 This learning path was assigned by your manager/admin and is synchronized across both portals.")
         
-        # Path summary
-        total_weeks = st.session_state.learning_path.get("total_duration_weeks", 0)
-        skills_count = len(st.session_state.learning_path.get("skill_gaps_addressed", []))
-        udemy_count = len(st.session_state.learning_path.get("udemy_courses", []))
+        # --- Course Selection Interface ---
+        st.markdown("#### ✅ Select Courses for Your Final Plan")
         
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
-            st.metric("Total Duration", f"{total_weeks} weeks")
-        with col_b:
-            st.metric("Skills Covered", skills_count)
-        with col_c:
-            st.metric("Udemy Courses", udemy_count)
+        # Initialize selected courses for plan if not exists
+        if 'selected_courses_for_plan' not in st.session_state:
+            st.session_state.selected_courses_for_plan = {}
         
-        # Explanation
-        if st.session_state.learning_path.get("explanation"):
-            st.info(st.session_state.learning_path["explanation"])
-        
-        # Learning path items
-        st.markdown("#### 🏆 Recommended Internal Courses")
-        for i, item in enumerate(st.session_state.learning_path.get("learning_path", [])):
+        if current_employee_id not in st.session_state.selected_courses_for_plan:
+            st.session_state.selected_courses_for_plan[current_employee_id] = {}
+            # Initialize all courses as selected by default
+            for course in st.session_state.learning_path.get('learning_path', []):
+                course_id = course.get('id', f"internal_{course.get('title', '')[:10]}")
+                st.session_state.selected_courses_for_plan[current_employee_id][course_id] = True
+            for course in st.session_state.learning_path.get('udemy_courses', []):
+                if 'id' not in course:
+                    course['id'] = f"udemy_{str(uuid.uuid4())}"
+                st.session_state.selected_courses_for_plan[current_employee_id][course['id']] = True
+
+        selected_internal_courses = []
+        selected_udemy_courses = []
+        total_selected_duration = 0
+        total_selected_skills = set()
+
+        # Internal Courses Selection
+        st.markdown("##### Internal Courses")
+        for i, course in enumerate(st.session_state.learning_path.get("learning_path", [])):
+            course_id = course.get('id', f"internal_{course.get('title', '')[:10]}")
+            checkbox_key = f"select_internal_{course_id}_{current_employee_id}"
+            
+            # Course selection checkbox
+            is_selected = st.checkbox(
+                f"**{course.get('title')}** ({course.get('duration')})",
+                value=st.session_state.selected_courses_for_plan[current_employee_id].get(course_id, True),
+                key=checkbox_key
+            )
+            st.session_state.selected_courses_for_plan[current_employee_id][course_id] = is_selected
+            
+            if is_selected:
+                selected_internal_courses.append(course)
+                total_selected_duration += course.get('duration_weeks', 0)
+                total_selected_skills.update(course.get('skills_gained', []))
+            
+            # Show course details (existing functionality)
             with st.container():
-                # Priority indicator
                 priority_colors = {
                     "Critical": "🔴",
                     "High": "🟠", 
                     "Medium": "🟡",
                     "Low": "🟢"
                 }
-                priority_emoji = priority_colors.get(item.get("priority", "Medium"), "⚪")
-                
-                st.markdown(f"**{i+1}. {item.get('title')} {priority_emoji}**")
+                priority_emoji = priority_colors.get(course.get("priority", "Medium"), "⚪")
                 
                 col_x, col_y = st.columns([3, 1])
                 with col_x:
-                    st.markdown(f"📚 {item.get('type')} • ⏱️ {item.get('duration')}")
-                    st.markdown(f"🎯 **Skills:** {', '.join(item.get('skills_gained', []))}")
+                    st.markdown(f"📚 {course.get('type')} • ⏱️ {course.get('duration')}")
+                    st.markdown(f"🎯 **Skills:** {', '.join(course.get('skills_gained', []))}")
                 with col_y:
-                    st.markdown(f"🚨 **{item.get('priority', 'Medium')}**")
+                    st.markdown(f"🚨 **{course.get('priority', 'Medium')}** {priority_emoji}")
                 
-                # Detailed information
                 with st.expander("Details"):
-                    st.markdown(f"**Why recommended:** {item.get('reason', 'N/A')}")
-                    if item.get('fits_constraints'):
-                        st.markdown(f"**Constraint fit:** {item['fits_constraints']}")
+                    st.markdown(f"**Why recommended:** {course.get('reason', 'N/A')}")
+                    if course.get('fits_constraints'):
+                        st.markdown(f"**Constraint fit:** {course['fits_constraints']}")
                 
                 st.divider()
-        
-        # Udemy Courses Section
+
+        # Udemy Courses Selection
         udemy_courses = st.session_state.learning_path.get("udemy_courses", [])
         if udemy_courses:
-            st.markdown("#### 🌟 Top Udemy Course Recommendations")
+            st.markdown("##### Udemy Courses")
             
             for i, course in enumerate(udemy_courses):
+                if 'id' not in course:
+                    course['id'] = f"udemy_{str(uuid.uuid4())}"
+                
+                checkbox_key = f"select_udemy_{course['id']}_{current_employee_id}"
+                
+                # Course selection checkbox
+                is_selected = st.checkbox(
+                    f"**{course['title']}** ({course.get('duration')}) - {course.get('price')}",
+                    value=st.session_state.selected_courses_for_plan[current_employee_id].get(course['id'], True),
+                    key=checkbox_key
+                )
+                st.session_state.selected_courses_for_plan[current_employee_id][course['id']] = is_selected
+                
+                if is_selected:
+                    selected_udemy_courses.append(course)
+                    total_selected_duration += course.get('duration_weeks', 0)
+                    # Simple skill extraction from title
+                    if course.get('title'):
+                        total_selected_skills.add(course['title'].split(' ')[0])
+                
+                # Show course details (existing functionality)
                 with st.container():
-                    # Course header
                     col_title, col_rating = st.columns([3, 1])
                     with col_title:
-                        st.markdown(f"**{i+1}. [{course['title']}]({course['url']})**")
+                        st.markdown(f"**[{course['title']}]({course['url']})**")
                     with col_rating:
                         stars = "⭐" * int(course.get('rating', 4))
                         st.markdown(f"{stars} {course.get('rating', 4.0)}")
                     
-                    # Course details
                     col_price, col_duration, col_level = st.columns(3)
                     with col_price:
                         st.markdown(f"💰 **{course.get('price', 'N/A')}**")
@@ -1737,19 +1891,45 @@ def enhanced_learning_path_management():
                     with col_level:
                         st.markdown(f"📊 **{course.get('level', 'N/A')}**")
                     
-                    # Description
                     st.markdown(f"📝 {course.get('description', 'No description available.')}")
-                    
-                    # Action button
                     st.link_button(
                         f"🚀 View Course on Udemy",
                         course.get('url', '#'),
                         help=f"Open {course['title']} on Udemy"
                     )
-                    
                     st.divider()
+
+        # Final Plan Summary
+        st.markdown("---")
+        st.markdown("#### 📊 Final Plan Summary (Selected Courses)")
         
-        # Additional information
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            st.metric("Total Duration", f"{total_selected_duration:.1f} weeks")
+        with col_b:
+            st.metric("Courses", len(selected_internal_courses) + len(selected_udemy_courses))
+        with col_c:
+            st.metric("Skills Covered", len(total_selected_skills))
+
+        # Overall Path Summary (existing functionality)
+        total_weeks = st.session_state.learning_path.get("total_duration_weeks", 0)
+        skills_count = len(st.session_state.learning_path.get("skill_gaps_addressed", []))
+        udemy_count = len(st.session_state.learning_path.get("udemy_courses", []))
+        
+        st.markdown("#### 📈 Overall Path Information")
+        col_d, col_e, col_f = st.columns(3)
+        with col_d:
+            st.metric("Available Duration", f"{total_weeks} weeks")
+        with col_e:
+            st.metric("Available Skills", skills_count)
+        with col_f:
+            st.metric("Available Udemy Courses", udemy_count)
+        
+        # Explanation (existing functionality)
+        if st.session_state.learning_path.get("explanation"):
+            st.info(st.session_state.learning_path["explanation"])
+        
+        # Additional information (existing functionality)
         if st.session_state.learning_path.get("progression_notes"):
             with st.expander("📝 Learning Progression Notes"):
                 st.markdown(st.session_state.learning_path["progression_notes"])
@@ -1759,7 +1939,8 @@ def enhanced_learning_path_management():
                 st.markdown(st.session_state.learning_path["alternative_suggestions"])
         
         # Enhanced action buttons with synchronization
-        col_1, col_2, col_3 = st.columns(3)
+        col_1, col_2, col_3, col_4 = st.columns(4)
+        
         with col_1:
             if st.button("🔄 Regenerate Path", type="primary", key="regenerate_main"):
                 with st.spinner("Regenerating your learning path..."):
@@ -1776,15 +1957,47 @@ def enhanced_learning_path_management():
                         st.error("Failed to regenerate learning path. Please try again.")
         
         with col_2:
-            st.button("📝 Save Learning Plan", key="save_btn", help="Save your learning plan")
+            if st.button("📝 Finalize Plan", key="save_final_plan_btn", help="Finalize your selected courses as the official learning path"):
+                # Create finalized path data with only selected courses
+                finalized_path_data = {
+                    "learning_path": selected_internal_courses,
+                    "udemy_courses": selected_udemy_courses,
+                    "total_duration_weeks": total_selected_duration,
+                    "skill_gaps_addressed": list(total_selected_skills),
+                    "explanation": st.session_state.learning_path.get("explanation", "Finalized learning path based on your selections."),
+                    "progression_notes": st.session_state.learning_path.get("progression_notes", "Courses arranged for optimal learning progression."),
+                    "alternative_suggestions": st.session_state.learning_path.get("alternative_suggestions", "No additional alternatives at this time.")
+                }
+                
+                # Update the learning path with finalized version
+                if current_employee_id and sync_employee_learning_path(current_employee_id, finalized_path_data):
+                    # Update session state with finalized path
+                    st.session_state.learning_path = finalized_path_data
+                    st.success("🎉 Your learning plan has been finalized!")
+                    #print("DONE HOGAYA")
+                    #print(finalized_path_data)
+                    st.rerun()
+                else:
+                    st.error("Failed to finalize plan.")
         
         with col_3:
             if st.button("📊 Download Dynamic Report", help="Generate comprehensive learning path report"):
                 with st.spinner("Generating dynamic report..."):
                     try:
+                        # Use selected courses for report generation
+                        report_data = {
+                            "learning_path": selected_internal_courses,
+                            "udemy_courses": selected_udemy_courses,
+                            "total_duration_weeks": total_selected_duration,
+                            "skill_gaps_addressed": list(total_selected_skills),
+                            "explanation": st.session_state.learning_path.get("explanation", ""),
+                            "progression_notes": st.session_state.learning_path.get("progression_notes", ""),
+                            "alternative_suggestions": st.session_state.learning_path.get("alternative_suggestions", "")
+                        }
+                        
                         # Generate the dynamic HTML report
                         report_html = generate_dynamic_learning_report(
-                            st.session_state.learning_path,
+                            report_data,
                             st.session_state.employee_profile,
                             st.session_state.get('learning_preferences')
                         )
@@ -1810,19 +2023,21 @@ def enhanced_learning_path_management():
                             mime="application/json"
                         )
         
-        # Option to clear learning path
-        if st.button("🗑️ Clear Learning Path", help="Remove current learning path"):
-            # Clear from both session state and database
-            st.session_state.learning_path = None
-            current_employee_id = get_current_employee_id()
-            if current_employee_id:
-                sync_employee_learning_path(current_employee_id, None)
-            
-            st.success("Learning path cleared!")
-            st.rerun()
+        with col_4:
+            if st.button("🗑️ Clear Learning Path", help="Remove current learning path"):
+                # Clear from both session state and database
+                st.session_state.learning_path = None
+                if current_employee_id:
+                    sync_employee_learning_path(current_employee_id, None)
+                    # Clear selections
+                    if current_employee_id in st.session_state.selected_courses_for_plan:
+                        st.session_state.selected_courses_for_plan[current_employee_id] = {}
+                
+                st.success("Learning path cleared!")
+                st.rerun()
     
     else:
-        # No learning path exists - show suggestions
+        # No learning path exists - show suggestions (existing functionality)
         st.markdown("### 💡 Try These Smart Commands")
         
         sample_commands = [
@@ -1858,8 +2073,8 @@ def sync_employee_profile_changes(employee_id, updated_profile):
         # Update database
         st.session_state.employee_database[employee_id].update(updated_profile)
         
-        # Also update session state employee profile if it exists
-        if 'employee_profile' in st.session_state:
+        # Also update session state employee profile if it exists and matches the current employee
+        if 'employee_profile' in st.session_state and st.session_state.employee_profile.get('employee_id') == employee_id:
             st.session_state.employee_profile.update(updated_profile)
         
         return True
@@ -2023,60 +2238,100 @@ class UdemyCourse:
 
 class AISearchAgent:
     def __init__(self):
-        self.base_url = "https://api.duckduckgo.com/"
+        self.base_url = "https://html.duckduckgo.com/html"
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
 
+    # def search_web(self, query: str, max_results: int = 5) -> List[Dict]:
+    #     """Search DuckDuckGo for web results"""
+    #     try:
+    #         # Use DuckDuckGo instant answer API
+    #         params = {
+    #             'q': query,
+    #             'format': 'json',
+    #             'no_redirect': '1',
+    #             'no_html': '1',
+    #             'skip_disambig': '1'
+    #         }
+            
+    #         response = self.session.get(self.base_url, params=params, timeout=10, verify=False)
+    #         response.raise_for_status()
+            
+    #         data = response.json()
+    #         results = []
+            
+    #         # Extract web results if available
+    #         if 'RelatedTopics' in data:
+    #             for topic in data['RelatedTopics'][:max_results]:
+    #                 if isinstance(topic, dict) and 'Text' in topic and 'FirstURL' in topic:
+    #                     results.append({
+    #                         'title': topic.get('Text', '')[:100] + '...' if len(topic.get('Text', '')) > 100 else topic.get('Text', ''),
+    #                         'url': topic.get('FirstURL', ''),
+    #                         'snippet': topic.get('Text', '')
+    #                     })
+            
+    #         # If no related topics, create a structured search result
+    #         if not results and data.get('Abstract'):
+    #             results.append({
+    #                 'title': f"About {query}",
+    #                 'url': data.get('AbstractURL', ''),
+    #                 'snippet': data.get('Abstract', '')
+    #             })
+            
+    #         return results
+            
+    #     except Exception as e:
+    #         st.error(f"Search error: {e}")
+    #         return []
+
     def search_web(self, query: str, max_results: int = 5) -> List[Dict]:
         """Search DuckDuckGo for web results"""
         try:
-            # Use DuckDuckGo instant answer API
+            # Modified params to use HTML API instead of JSON API
             params = {
                 'q': query,
-                'format': 'json',
-                'no_redirect': '1',
-                'no_html': '1',
-                'skip_disambig': '1'
+                'kl': 'us-en',  # Region and language
+                's': '0',       # Offset
+                'dc': '0'       # Start position
             }
             
             response = self.session.get(self.base_url, params=params, timeout=10, verify=False)
             response.raise_for_status()
             
-            data = response.json()
+            # Since we're using HTML API, we'll parse the response text
+            html_content = response.text
+            
             results = []
+            # Use regex to extract results from HTML
+            result_pattern = r'<h2 class="result__title">.*?<a href="([^"]+)".*?>([^<]+)</a>.*?<a class="result__snippet"[^>]*>([^<]+)</a>'
+            matches = re.findall(result_pattern, html_content, re.DOTALL)
             
-            # Extract web results if available
-            if 'RelatedTopics' in data:
-                for topic in data['RelatedTopics'][:max_results]:
-                    if isinstance(topic, dict) and 'Text' in topic and 'FirstURL' in topic:
-                        results.append({
-                            'title': topic.get('Text', '')[:100] + '...' if len(topic.get('Text', '')) > 100 else topic.get('Text', ''),
-                            'url': topic.get('FirstURL', ''),
-                            'snippet': topic.get('Text', '')
-                        })
-            
-            # If no related topics, create a structured search result
-            if not results and data.get('Abstract'):
+            for url, title, snippet in matches[:max_results]:
+                # Clean up the extracted data
+                clean_url = url.replace('&amp;', '&')
+                clean_title = re.sub(r'\s+', ' ', title).strip()
+                clean_snippet = re.sub(r'\s+', ' ', snippet).strip()
+                
                 results.append({
-                    'title': f"About {query}",
-                    'url': data.get('AbstractURL', ''),
-                    'snippet': data.get('Abstract', '')
+                    'title': clean_title,
+                    'url': clean_url,
+                    'snippet': clean_snippet
                 })
             
             return results
             
         except Exception as e:
-            st.error(f"Search error: {e}")
+            print(f"Search error: {str(e)}")
             return []
 
-    def search_udemy_courses(self, skill: str, max_results: int = 10) -> List[Dict]:
+    def search_udemy_courses(self, skill: str,current_role:str, max_results: int = 10) -> List[Dict]:
         """Search specifically for Udemy courses using DuckDuckGo"""
         try:
             # Search for Udemy courses specifically
-            query = f"site:udemy.com {skill} course"
-            
+            query = f"site:udemy.com {skill} top course for {current_role}"
+            print(query)
             # Use DuckDuckGo HTML search since JSON API is limited
             search_url = f"https://html.duckduckgo.com/html/"
             params = {
@@ -2089,6 +2344,7 @@ class AISearchAgent:
             
             # Parse HTML results (basic extraction)
             html_content = response.text
+            print(html_content)
             results = []
             
             # Extract Udemy course URLs using regex
@@ -2136,6 +2392,7 @@ class AISearchAgent:
             response.raise_for_status()
             
             data = response.json()
+            print(data)
             results = []
             
             # Check related topics for Udemy links
@@ -2189,7 +2446,7 @@ class UdemyCourseAgent:
         self.base_url = "https://www.udemy.com"
         self.search_agent = AISearchAgent()
     
-    def generate_udemy_courses(self, skills: List[str]) -> List[UdemyCourse]:
+    def generate_udemy_courses(self, skills: List[str],current_role:str) -> List[UdemyCourse]:
         """Find real Udemy courses using web search"""
         if not skills:
             return []
@@ -2198,7 +2455,7 @@ class UdemyCourseAgent:
         
         for skill in skills:
             # Search for real Udemy courses
-            search_results = self.search_agent.search_udemy_courses(skill, max_results=3)
+            search_results = self.search_agent.search_udemy_courses(skill,current_role, max_results=2)
             
             for result in search_results:
                 # Extract course info and enhance with realistic details
@@ -2211,7 +2468,7 @@ class UdemyCourseAgent:
         
         # If we found real courses, return them
         if all_courses:
-            return all_courses[:5]
+            return all_courses
         
         # Fallback: Generate realistic courses with proper Udemy URL structure
         return self._generate_fallback_courses(skills)
@@ -2390,6 +2647,9 @@ def load_enhanced_course_catalog():
          "description": "Learn Data Analysis basics"},
         {"id": "COURSE014", "title": "Excel Advanced", "type": "Course", "duration": "3 weeks", "duration_weeks": 3,
          "skills": ["Data Analysis", "Excel"], "difficulty": "Intermediate", "learning_style": "Hands-on",
+         "description": "Learn Excel"},
+         {"id": "COURSE015", "title": "Object-Oriented Programming", "type": "Course", "duration": "3 weeks", "duration_weeks": 3,
+         "skills": ["Python", "Excel"], "difficulty": "Intermediate", "learning_style": "Hands-on",
          "description": "Learn Excel"}
     ])
 
@@ -2418,48 +2678,160 @@ def load_enhanced_role_requirements():
             "required_skills": ["Leadership", "Data Science", "Team Management", "Strategy"],
             "preferred_skills": ["Communication", "Project Management", "Business Intelligence"],
             "experience_level": "Senior to Executive"
-        }
+        },
+        "Software Engineer": { # Added for new employee
+            "required_skills": ["Python", "Java", "Data Structures", "Algorithms"],
+            "preferred_skills": ["Cloud Computing", "DevOps", "System Design"],
+            "experience_level": "Entry to Senior"
+        },
+        "Senior Software Engineer": { # Added for new employee
+            "required_skills": ["Python", "Java", "Data Structures", "Algorithms"],
+            "preferred_skills": ["Cloud Computing", "DevOps", "System Design"],
+            "experience_level": "Entry to Senior"
+        },
+        "Tech Lead": { # Added for new employee
+            "required_skills": ["Python", "Java", "Data Structures", "Algorithms"],
+            "preferred_skills": ["Cloud Computing", "DevOps", "System Design"],
+            "experience_level": "Entry to Senior"
+        },
+
     }
 
 role_requirements = load_enhanced_role_requirements()
 
 # Enhanced intent detection
-def detect_user_intent(user_input):
-    user_input_lower = user_input.lower()
+# def detect_user_intent(user_input):
+#     user_input_lower = user_input.lower()
     
-    intents = {
-        "request_specific_skill": [
-            "learn", "want to learn", "need to learn", "skill", "develop", "improve"
-        ],
-        "time_constraint": [
-            "week", "month", "time", "deadline", "urgent", "quickly", "fast"
-        ],
-        "learning_path_request": [
-            "learning path", "recommend courses", "suggest", "path", "roadmap"
-        ],
-        "skill_gap_analysis": [
-            "gap", "missing", "lack", "need", "should learn"
-        ],
-        "career_guidance": [
-            "career", "role", "position", "promotion", "transition"
-        ],
-        "course_filtering": [
-            "beginner", "advanced", "intermediate", "easy", "difficult"
-        ],
-        "search_request": [
-            "search", "find", "look for", "research", "information about"
-        ],
-        "udemy_request": [
-            "udemy", "online course", "course recommendation", "external courses"
-        ]
+#     intents = {
+#         "request_specific_skill": [
+#             "learn", "want to learn", "need to learn", "skill", "develop", "improve"
+#         ],
+#         "time_constraint": [
+#             "week", "month", "time", "deadline", "urgent", "quickly", "fast"
+#         ],
+#         "learning_path_request": [
+#             "learning path", "recommend courses", "suggest", "path", "roadmap"
+#         ],
+#         "skill_gap_analysis": [
+#             "gap", "missing", "lack", "need", "should learn"
+#         ],
+#         "career_guidance": [
+#             "career", "role", "position", "promotion", "transition"
+#         ],
+#         "course_filtering": [
+#             "beginner", "advanced", "intermediate", "easy", "difficult"
+#         ],
+#         "search_request": [
+#             "search", "find", "look for", "research", "information about"
+#         ],
+#         "udemy_request": [
+#             "udemy", "online course", "course recommendation", "external courses"
+#         ]
+#     }
+    
+#     detected_intents = []
+#     for intent, keywords in intents.items():
+#         if any(keyword in user_input_lower for keyword in keywords):
+#             detected_intents.append(intent)
+    
+#     return detected_intents
+
+def enhanced_intent_detection_with_gemini(user_input, conversation_history, current_learning_path):
+    """
+    Enhanced intent detection using Gemini model to understand user's specific request
+    and determine the appropriate action without regenerating the entire learning path
+    """
+    
+    # Prepare context for Gemini
+    context = {
+        "current_learning_path": current_learning_path,
+        "employee_profile": st.session_state.employee_profile,
+        "learning_preferences": st.session_state.learning_preferences,
+        "conversation_history": conversation_history[-3:] if conversation_history else []  # Last 3 messages
     }
     
-    detected_intents = []
-    for intent, keywords in intents.items():
-        if any(keyword in user_input_lower for keyword in keywords):
-            detected_intents.append(intent)
+    prompt = f"""
+    You are an intelligent learning path assistant. Analyze the user's input to determine their intent and what action should be taken.
     
-    return detected_intents
+    CONTEXT:
+    - Current Learning Path: {json.dumps(current_learning_path.get('learning_path', [])[:5])}  # Show first 5 courses
+    - Employee Skills: {', '.join(st.session_state.employee_profile.get('skills', []))}
+    - Recent Conversation: {json.dumps(context['conversation_history'])}
+    
+    USER INPUT: "{user_input}"
+    
+    Analyze the user's intent and respond with a JSON object containing:
+    
+    {{
+        "intent_type": "add_skill|remove_skill|modify_learning_path|skill_gap_analysis|search_request|general_question|clarification_needed|out_of_context",
+        "confidence": 0.0-1.0,
+        "action_required": "regenerate_full_path|add_courses|remove_courses|search_web|provide_analysis|ask_clarification|respond_conversationally|ignore_request",
+        "extracted_info": {{
+            "skills_to_add": ["skill1", "skill2"],
+            "skills_to_remove": ["skill3"],
+            "time_constraint": null or number_of_weeks,
+            "difficulty_preference": null or "beginner|intermediate|advanced",
+            "search_query": null or "search terms",
+            "specific_course_request": null or "course_name"
+        }},
+        "reasoning": "Brief explanation of why this intent was detected",
+        "clarification_questions": ["question1", "question2"] or [],
+        "response_suggestion": "Suggested response to user"
+    }}
+    
+    INTENT DETECTION RULES:
+    1. "add_skill" - User wants to learn NEW skills (e.g., "I want to learn AWS", "add Python to my path")
+    2. "remove_skill" - User already knows something or wants to remove (e.g., "I already know Python", "remove JavaScript")
+    3. "modify_learning_path" - User wants to change preferences (time, difficulty, etc.)
+    4. "skill_gap_analysis" - User asks about gaps or what they should learn
+    5. "search_request" - User wants to search for information
+    6. "general_question" - Learning-related questions but no path changes needed
+    7. "clarification_needed" - Input is ambiguous, need more info
+    8. "out_of_context" - Completely unrelated to learning/career development
+    
+    ACTION RULES:
+    - Only suggest "regenerate_full_path" if major changes are needed (career goal change, role change, etc.)
+    - Use "add_courses" when user wants to learn new skills
+    - Use "remove_courses" when user already knows skills
+    - Use "ask_clarification" when input is ambiguous
+    - Use "ignore_request" for completely off-topic requests
+    
+    Respond with valid JSON only.
+    """
+    
+    try:
+        generation_config = {
+            "temperature": 0.2,
+            "top_p": 0.8,
+            "top_k": 40,
+            "max_output_tokens": 1024,
+        }
+        
+        response = gemini_model.generate_content(prompt, generation_config=generation_config)
+        raw_text = response.text
+        
+        # Extract JSON from response
+        match = re.search(r'```json\s*(\{[\s\S]*\})\s*```', raw_text)
+        if match:
+            json_str = match.group(1)
+            result = json.loads(json_str)
+        else:
+            result = json.loads(raw_text)
+        
+        return result
+        
+    except Exception as e:
+        st.error(f"Error in intent detection: {e}")
+        return {
+            "intent_type": "general_question",
+            "confidence": 0.5,
+            "action_required": "respond_conversationally",
+            "extracted_info": {},
+            "reasoning": "Error in processing, defaulting to general response",
+            "clarification_questions": [],
+            "response_suggestion": "I'm having trouble understanding your request. Could you please clarify what you'd like to learn or modify in your learning path?"
+        }
 
 # Extract structured information from user input
 def extract_learning_requirements(user_input):
@@ -2516,7 +2888,7 @@ def extract_learning_requirements(user_input):
         "urgency": urgency
     }
 
-#Enhanced learning path generation with Udemy integration
+# Enhanced learning path generation with Udemy integration
 def generate_enhanced_learning_path(employee_profile, learning_preferences, specific_requirements=None):
     # Prepare context
     role_reqs = role_requirements.get(employee_profile["current_role"], {})
@@ -2549,39 +2921,28 @@ def generate_enhanced_learning_path(employee_profile, learning_preferences, spec
     # Time constraint filtering
     time_constraint = learning_preferences.time_available_weeks
     if specific_requirements and specific_requirements.get("time_available_weeks"):
-        specific_requirements["time_available_weeks"] = time_constraint
-    if specific_requirements:
-        temp = specific_requirements.copy()
-    else:
-        temp = None
-    #del temp['time_available_weeks']
-    print('before time filter')
-    print(filtered_courses)
-
-    # if time_constraint > 0:
-    #     # Allow some flexibility (±1 week)
-    #     filtered_courses = filtered_courses[
-    #         (filtered_courses["duration_weeks"] <= time_constraint + 1) &
-    #         (filtered_courses["duration_weeks"] >= max(1, time_constraint - 2))
-    #     ]
-    print('After time filter')
-    print(filtered_courses)
-    print(specific_requirements)
-    print(time_constraint)
+        time_constraint = specific_requirements["time_available_weeks"]
+    
+    if time_constraint > 0:
+        # Allow some flexibility (±1 week)
+        filtered_courses = filtered_courses[
+            (filtered_courses["duration_weeks"] <= time_constraint + 1) &
+            (filtered_courses["duration_weeks"] >= max(1, time_constraint - 2))
+        ]
+    
     # Filter by relevant skills
     relevant_courses = []
     for _, course in filtered_courses.iterrows():
         if any(skill in skill_gaps for skill in course["skills"]):
             if course["title"] not in employee_profile["completed_courses"]:
                 relevant_courses.append(course.to_dict())
-    print("relevant")
-    print(relevant_courses)
+    
     # Generate Udemy courses for alternative suggestions
     udemy_courses = []
     skills_for_udemy = skill_gaps or learning_preferences.specific_skills_requested or []
     if skills_for_udemy:
         with st.spinner("🔍 Finding top Udemy courses..."):
-            udemy_courses = udemy_agent.generate_udemy_courses(skills_for_udemy[:3])  # Limit to 3 skills
+            udemy_courses = udemy_agent.generate_udemy_courses(skills_for_udemy,employee_profile["current_role"])  # Limit to 3 skills
     
     # Create enhanced prompt
     prompt = f"""
@@ -2607,11 +2968,11 @@ def generate_enhanced_learning_path(employee_profile, learning_preferences, spec
     {json.dumps(relevant_courses[:15])}  # Limit to prevent token overflow
 
     SPECIFIC REQUIREMENTS:
-    {json.dumps(temp.pop("time_available_weeks")) if temp else "None"}
+    {json.dumps(specific_requirements) if specific_requirements else "None"}
 
     Create a learning path with 3-6 courses that:
     1. Addresses the most critical skill gaps first
-    2. Strictly Follow Time Available if specified
+    2. Respects time constraints if specified
     3. Follows logical learning progression
     4. Matches the employee's preferred learning style when possible
     5. Considers their current skill proficiency levels
@@ -2648,13 +3009,13 @@ def generate_enhanced_learning_path(employee_profile, learning_preferences, spec
 
     Only respond with valid JSON.
     """
-    print(prompt)
+    
     try:
         generation_config = {
             "temperature": 0.1,  # Lower temperature for more consistent output
             "top_p": 0.8,
             "top_k": 40,
-            #"max_output_tokens": 2048,
+            "max_output_tokens": 2048,
             }
         
         response = gemini_model.generate_content(
@@ -2687,7 +3048,7 @@ def generate_enhanced_learning_path(employee_profile, learning_preferences, spec
         ]
         
         return result
- 
+        
     except Exception as e:
         st.error(f"Error generating learning path: {e}")
         return {
@@ -2700,340 +3061,376 @@ def generate_enhanced_learning_path(employee_profile, learning_preferences, spec
             "udemy_courses": []
         }
 
-#  remove if not working
-
-# from functools import lru_cache
-
-# import hashlib
-
-# def generate_enhanced_learning_path(employee_profile, learning_preferences, specific_requirements=None):
-#     """
-#     Generate a consistent learning path with caching and deterministic output
-#     """
+# Enhanced user input processing with search capabilities
+# def process_enhanced_user_input(user_input):
+#     st.session_state.messages.append({"role": "user", "content": user_input})
     
-#     # Create a cache key based on inputs to ensure consistency
-#     cache_key = create_cache_key(employee_profile, learning_preferences, specific_requirements)
+#     with st.chat_message("assistant"):
+#         message_placeholder = st.empty()
+#         message_placeholder.markdown("🔍 Analyzing your request...")
     
-#     # Check if we have a cached result
-#     if 'learning_path_cache' not in st.session_state:
-#         st.session_state.learning_path_cache = {}
+#     # Detect intents and extract requirements
+#     intents = detect_user_intent(user_input)
+#     specific_requirements = extract_learning_requirements(user_input)
     
-#     if cache_key in st.session_state.learning_path_cache:
-#         return st.session_state.learning_path_cache[cache_key]
+#     # Update learning preferences based on extracted requirements
+#     if specific_requirements["time_available_weeks"] > 0:
+#         st.session_state.learning_preferences.time_available_weeks = specific_requirements["time_available_weeks"]
     
-#     # Prepare context
-#     role_reqs = role_requirements.get(employee_profile["current_role"], {})
-#     career_goal_reqs = []
-#     for goal in employee_profile["career_goals"]:
-#         if goal in role_requirements:
-#             career_goal_reqs.extend(role_requirements[goal]["required_skills"])
-#             career_goal_reqs.extend(role_requirements[goal]["preferred_skills"])
+#     if specific_requirements["mentioned_skills"]:
+#         st.session_state.learning_preferences.specific_skills_requested.extend(
+#             [skill for skill in specific_requirements["mentioned_skills"] 
+#              if skill not in st.session_state.learning_preferences.specific_skills_requested]
+#         )
     
-#     # Identify skill gaps (ensure consistent ordering)
-#     current_skills = set(employee_profile["skills"])
-#     required_skills = set(role_reqs.get("required_skills", [])) | set(career_goal_reqs)
-#     skill_gaps = sorted(list(required_skills - current_skills))  # Sort for consistency
-    
-#     # Add specifically requested skills (maintain order)
-#     if learning_preferences.specific_skills_requested:
-#         additional_skills = [skill for skill in learning_preferences.specific_skills_requested 
-#                            if skill not in current_skills]
-#         skill_gaps.extend(sorted(additional_skills))
-    
-#     if specific_requirements and specific_requirements.get("mentioned_skills"):
-#         additional_skills = [skill for skill in specific_requirements["mentioned_skills"]
-#                            if skill not in current_skills]
-#         skill_gaps.extend(sorted(additional_skills))
-    
-#     # Remove duplicates and maintain consistent order
-#     skill_gaps = sorted(list(set(skill_gaps)))
-    
-#     # Filter courses based on time constraints and preferences
-#     filtered_courses = course_catalog.copy()
-    
-#     # Time constraint filtering
-#     time_constraint = learning_preferences.time_available_weeks
-#     if specific_requirements and specific_requirements.get("time_available_weeks"):
-#         time_constraint = specific_requirements["time_available_weeks"]
-    
-#     print('before time filter')
-#     print(filtered_courses)
-#     print(specific_requirements)
-#     print(time_constraint)
-#     if time_constraint > 0:
-#         # Allow some flexibility (±1 week)
-#         filtered_courses = filtered_courses[
-#             (filtered_courses["duration_weeks"] <= time_constraint + 1) &
-#             (filtered_courses["duration_weeks"] >= max(1, time_constraint - 2))
-#         ]
-
-    
-#     print('After time filter')
-#     print(filtered_courses)
-#     # Filter by relevant skills and sort for consistency
-#     relevant_courses = []
-#     for _, course in filtered_courses.iterrows():
-#         if any(skill in skill_gaps for skill in course["skills"]):
-#             if course["title"] not in employee_profile["completed_courses"]:
-#                 relevant_courses.append(course.to_dict())
-
-    
-#     # Sort courses for consistent ordering
-#     #print('before')
-#     #print(relevant_courses)
-#     relevant_courses = sorted(relevant_courses, key=lambda x: (x["title"], x["duration_weeks"]))
-#     #print('after')
-#     #print(relevant_courses)
-#     # Generate Udemy courses with consistent selection
-#     udemy_courses = []
-#     skills_for_udemy = skill_gaps or learning_preferences.specific_skills_requested or []
-#     if skills_for_udemy:
-#         # Take first 3 skills consistently
-#         selected_skills = sorted(skills_for_udemy)[:3]
-#         with st.spinner("🔍 Finding top Udemy courses..."):
-#             udemy_courses = udemy_agent.generate_udemy_courses(selected_skills)
-    
-#     # Create enhanced prompt with deterministic structure
-#     prompt = create_deterministic_prompt(
-#         employee_profile, learning_preferences, specific_requirements,
-#         time_constraint, skill_gaps, relevant_courses
-#     )
-#     #print(prompt)
-    
-#     try:
-#         # Use very low temperature for maximum consistency
-#         generation_config = {
-#             "temperature": 0.0,  # Set to 0 for maximum determinism
-#             "top_p": 0.1,        # Very low for consistency
-#             "top_k": 1,          # Only consider top option
-#             #"seed": 42,          # Add seed if supported by your model
-#         }
+#     # Handle search requests
+#     if "search_request" in intents:
+#         message_placeholder.markdown("🔍 Searching the web for information...")
         
-#         response = gemini_model.generate_content(
+#         # Extract search query
+#         search_query = user_input
+#         for phrase in ["search for", "find", "look for", "research", "information about"]:
+#             if phrase in user_input.lower():
+#                 search_query = user_input.lower().split(phrase, 1)[1].strip()
+#                 break
+        
+#         # Perform search
+#         search_results = search_agent.search_web(search_query, max_results=5)
+        
+#         if search_results:
+#             response = f"🔍 **Search Results for: {search_query}**\n\n"
+#             for i, result in enumerate(search_results, 1):
+#                 response += f"**{i}. {result['title']}**\n"
+#                 response += f"🔗 {result['url']}\n"
+#                 response += f"📝 {result['snippet'][:200]}...\n\n"
+            
+#             response += "Would you like me to search for anything else or help create a learning path based on this information?"
+#         else:
+#             response = f"I couldn't find specific search results for '{search_query}', but I can help you create a learning path or find courses related to your interests. What would you like to learn?"
+    
+#     # Generate response based on intents
+#     elif "learning_path_request" in intents or "request_specific_skill" in intents:
+#         message_placeholder.markdown("🎯 Creating your personalized learning path...")
+        
+#         with st.spinner("Generating learning path and finding Udemy courses..."):
+#             result = generate_enhanced_learning_path_with_sync(
+#                 st.session_state.employee_profile,
+#                 st.session_state.learning_preferences,
+#                 specific_requirements
+#             )
+#             st.session_state.learning_path = result
+            
+#             response = f"""🎯 **Personalized Learning Path Created!**
+
+# **Analysis Summary:**
+# - **Time Constraint:** {specific_requirements['time_available_weeks']} weeks (if specified)
+# - **Skills Requested:** {', '.join(specific_requirements['mentioned_skills']) if specific_requirements['mentioned_skills'] else 'Based on your career goals'}
+# - **Total Duration:** {result.get('total_duration_weeks', 'N/A')} weeks
+
+# **Strategy:** {result.get('explanation', '')}
+
+# **Learning Progression:** {result.get('progression_notes', '')}
+
+# **Alternative Options:** {result.get('alternative_suggestions', '')}
+
+# ✨ I've also found {len(result.get('udemy_courses', []))} top-rated Udemy courses that complement your learning path. Check the learning path panel on the right to see all recommendations!"""
+
+#     elif "skill_gap_analysis" in intents:
+#         message_placeholder.markdown("📊 Analyzing your skill gaps...")
+        
+#         # Enhanced skill gap analysis with search
+#         role_reqs = role_requirements.get(st.session_state.employee_profile["current_role"], {})
+#         current_skills = set(st.session_state.employee_profile["skills"])
+#         required_skills = set(role_reqs.get("required_skills", []))
+#         preferred_skills = set(role_reqs.get("preferred_skills", []))
+        
+#         critical_gaps = required_skills - current_skills
+#         nice_to_have_gaps = preferred_skills - current_skills
+        
+#         response = f"""📊 **Skill Gap Analysis for {st.session_state.employee_profile['current_role']}:**
+
+# **🚨 Critical Skills Missing:** {', '.join(critical_gaps) if critical_gaps else 'None - you have all required skills!'}
+
+# **💡 Recommended Additional Skills:** {', '.join(nice_to_have_gaps) if nice_to_have_gaps else 'You have excellent coverage!'}
+
+# **✅ Your Strengths:** {', '.join(current_skills & (required_skills | preferred_skills))}
+
+# Would you like me to create a learning path to address these gaps or search for specific learning resources?"""
+
+#         # Perform automatic search for critical gaps
+#         if critical_gaps:
+#             message_placeholder.markdown("🔍 Searching for learning resources...")
+            
+#             gap_skills = list(critical_gaps)[:2]  # Limit to top 2 critical skills
+#             search_results_text = ""
+            
+#             for skill in gap_skills:
+#                 search_result = search_agent.search_learning_resources(skill)
+#                 if search_result['resources']:
+#                     search_results_text += f"\n\n**🔍 Learning Resources for {skill}:**\n"
+#                     for resource in search_result['resources'][:3]:  # Top 3 per skill
+#                         search_results_text += f"• [{resource['title']}]({resource['url']})\n"
+            
+#             if search_results_text:
+#                 response += search_results_text
+
+#     else:
+#         # General conversational response
+#         conversation_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages[-5:]])
+        
+#         prompt = f"""
+#         You are a learning advisor chatbot with AI search capabilities. Respond helpfully to the user's message.
+        
+#         Employee Profile: {st.session_state.employee_profile['current_role']}, Skills: {', '.join(st.session_state.employee_profile['skills'])}
+#         Detected Intents: {', '.join(intents)}
+#         Extracted Requirements: {json.dumps(specific_requirements)}
+        
+#         Recent conversation: {conversation_context}
+#         User's message: {user_input}
+        
+#         Provide a helpful, conversational response (max 3 sentences). If they mentioned specific skills or time constraints, acknowledge them.
+#         If they seem to need search help, offer to search for information. If they need learning guidance, offer to create a learning path.
+#         """
+        
+#         try:
+#             generation_config = {
+#             "temperature": 0.1,  # Lower temperature for more consistent output
+#             "top_p": 0.8,
+#             "top_k": 40,
+#             "max_output_tokens": 2048,
+#             }
+        
+#             ai_response = gemini_model.generate_content(
 #             prompt,
 #             generation_config=generation_config
-#         )
-#         raw_text = response.text
-        
-#         #print(raw_text)
-#         # Extract JSON from markdown
-#         result = extract_json_from_response(raw_text)
-        
-#         # Ensure consistent structure and add Udemy courses
-#         result = normalize_result_structure(result, udemy_courses)
-        
-#         # Cache the result
-#         st.session_state.learning_path_cache[cache_key] = result
-
-        
-        
-#         return result
- 
-#     except Exception as e:
-#         st.error(f"Error generating learning path: {e}")
-#         default_result = create_default_result()
-#         st.session_state.learning_path_cache[cache_key] = default_result
-#         return default_result
-
-
-# def create_cache_key(employee_profile, learning_preferences, specific_requirements):
-#     """Create a deterministic cache key from inputs"""
-#     # Create a normalized representation of inputs
-#     cache_data = {
-#         "profile": {
-#             "current_role": employee_profile.get("current_role", ""),
-#             "skills": sorted(employee_profile.get("skills", [])),
-#             "completed_courses": sorted(employee_profile.get("completed_courses", [])),
-#             "career_goals": sorted(employee_profile.get("career_goals", [])),
-#             "skill_proficiency": employee_profile.get("skill_proficiency", {})
-#         },
-#         "preferences": {
-#             "time_available_weeks": getattr(learning_preferences, 'time_available_weeks', 0),
-#             "preferred_learning_style": getattr(learning_preferences, 'preferred_learning_style', ''),
-#             "difficulty_preference": getattr(learning_preferences, 'difficulty_preference', ''),
-#             "learning_urgency": getattr(learning_preferences, 'learning_urgency', ''),
-#             "specific_skills_requested": sorted(getattr(learning_preferences, 'specific_skills_requested', []))
-#         },
-#         "requirements": specific_requirements or {}
-#     }
+#             )
+#             response = ai_response.text
+#         except Exception as e:
+#             response = "I'm having trouble processing your request right now. Could you try rephrasing it, or would you like me to search for information or create a learning path?"
     
-#     # Create hash of the normalized data
-#     cache_str = json.dumps(cache_data, sort_keys=True)
-#     return hashlib.md5(cache_str.encode()).hexdigest()
+#     st.session_state.messages.append({"role": "assistant", "content": response})
+#     message_placeholder.markdown(response)
 
-
-# def create_deterministic_prompt(employee_profile, learning_preferences, specific_requirements, 
-#                                time_constraint, skill_gaps, relevant_courses):
-#     """Create a deterministic prompt with consistent structure"""
+#update
+def add_courses_to_learning_path(current_path, skills_to_add, employee_profile, learning_preferences):
+    """
+    Add new courses for specific skills without regenerating the entire path
+    """
     
-#     prompt = f"""
-# You are an expert learning path advisor. Create a personalized learning path for an employee.
-# IMPORTANT: Provide consistent, deterministic recommendations based solely on the data provided.
-
-# EMPLOYEE PROFILE:
-# - Current Role: {employee_profile['current_role']}
-# - Current Skills: {', '.join(sorted(employee_profile['skills']))}
-# - Skill Proficiency: {json.dumps(employee_profile.get('skill_proficiency', {}), sort_keys=True)}
-# - Completed Courses: {', '.join(sorted(employee_profile['completed_courses']))}
-# - Career Goals: {', '.join(sorted(employee_profile['career_goals']))}
-
-# LEARNING CONSTRAINTS:
-# - Time Available: {time_constraint} weeks
-# - Learning Style Preference: {learning_preferences.preferred_learning_style}
-# - Difficulty Preference: {learning_preferences.difficulty_preference}
-# - Urgency: {learning_preferences.learning_urgency}
-
-# SKILL GAPS IDENTIFIED (in priority order):
-# {', '.join(skill_gaps)}
-
-# AVAILABLE COURSES (sorted by relevance):
-# {json.dumps(relevant_courses[:10], sort_keys=True, indent=2)}
-
-# SPECIFIC REQUIREMENTS:
-# {json.dumps(specific_requirements, sort_keys=True) if specific_requirements else "None"}
-
-# INSTRUCTIONS:
-# 1. Select exactly 3-5 courses that best address the skill gaps
-# 2. Prioritize courses that cover multiple skill gaps
-# 3. Ensure logical learning progression
-# 4. Respect time constraints
-# 5. Use ONLY courses from the AVAILABLE COURSES list above
-
-# Return response in this EXACT JSON format (no variations):
-# {{
-#   "learning_path": [
-#     {{
-#       "title": "Course Title",
-#       "type": "Course/Workshop/Bootcamp",
-#       "duration": "X weeks",
-#       "duration_weeks": X,
-#       "priority": "Critical/High/Medium/Low",
-#       "reason": "Detailed reason for recommendation",
-#       "skills_gained": ["Skill1", "Skill2"],
-#       "fits_constraints": "How this course fits constraints"
-#     }}
-#   ],
-#   "total_duration_weeks": X,
-#   "explanation": "Overall learning path strategy",
-#   "skill_gaps_addressed": {json.dumps(skill_gaps)},
-#   "progression_notes": "Learning progression and dependencies",
-#   "alternative_suggestions": "External resources recommendation",
-#   "udemy_courses": []
-# }}
-
-# Respond ONLY with valid JSON. No additional text or formatting.
-# """
+    # Filter courses for the new skills
+    new_courses = []
+    filtered_courses = course_catalog.copy()
     
-#     return prompt
-
-
-# def extract_json_from_response(raw_text):
-#     """Extract and parse JSON from model response"""
-#     # Try to extract JSON from markdown first
-#     match = re.search(r'```json\s*(\{[\s\S]*\})\s*```', raw_text)
-#     if match:
-#         json_str = match.group(1)
-#         return json.loads(json_str)
+    # Apply existing time constraints
+    time_constraint = learning_preferences.time_available_weeks
+    if time_constraint > 0:
+        filtered_courses = filtered_courses[
+            (filtered_courses["duration_weeks"] <= time_constraint + 1) &
+            (filtered_courses["duration_weeks"] >= max(1, time_constraint - 2))
+        ]
     
-#     # Try to find JSON object in the text
-#     json_match = re.search(r'\{[\s\S]*\}', raw_text)
-#     if json_match:
-#         return json.loads(json_match.group(0))
+    # Find courses for new skills
+    for _, course in filtered_courses.iterrows():
+        if any(skill.lower() in [s.lower() for s in course["skills"]] for skill in skills_to_add):
+            if course["title"] not in employee_profile["completed_courses"]:
+                # Check if course is not already in learning path
+                existing_titles = [c.get("title", "") for c in current_path.get("learning_path", [])]
+                if course["title"] not in existing_titles:
+                    new_courses.append({
+                        "title": course["title"],
+                        "type": course["type"],
+                        "duration": f"{course['duration_weeks']} weeks",
+                        "duration_weeks": course["duration_weeks"],
+                        "priority": "High",  # New requested skills get high priority
+                        "reason": f"Added based on your request to learn {', '.join(skills_to_add)}",
+                        "skills_gained": course["skills"],
+                        "fits_constraints": "Matches your learning preferences and time constraints"
+                    })
     
-#     # If no JSON found, try parsing entire response
-#     return json.loads(raw_text)
-
-
-# def normalize_result_structure(result, udemy_courses):
-#     """Ensure the result has consistent structure"""
-#     normalized = {
-#         "learning_path": result.get("learning_path", []),
-#         "total_duration_weeks": result.get("total_duration_weeks", 0),
-#         "explanation": result.get("explanation", ""),
-#         "skill_gaps_addressed": result.get("skill_gaps_addressed", []),
-#         "progression_notes": result.get("progression_notes", ""),
-#         "alternative_suggestions": result.get("alternative_suggestions", ""),
-#         "udemy_courses": []
-#     }
+    # Generate Udemy courses for new skills
+    new_udemy_courses = []
+    if skills_to_add:
+        with st.spinner("🔍 Finding additional Udemy courses..."):
+            new_udemy_courses = udemy_agent.generate_udemy_courses(skills_to_add, employee_profile["current_role"])
     
-#     # Add Udemy courses with consistent structure
-#     normalized["udemy_courses"] = [
-#         {
-#             "title": getattr(course, 'title', ''),
-#             "url": getattr(course, 'url', ''),
-#             "description": getattr(course, 'description', ''),
-#             "rating": getattr(course, 'rating', 0),
-#             "price": getattr(course, 'price', ''),
-#             "duration": getattr(course, 'duration', ''),
-#             "level": getattr(course, 'level', '')
-#         }
-#         for course in udemy_courses
-#     ]
+    # Update the learning path
+    updated_path = current_path.copy()
+    updated_path["learning_path"].extend(new_courses)
     
-#     return normalized
+    # Add new Udemy courses (avoid duplicates)
+    existing_udemy_titles = [c.get("title", "") for c in updated_path.get("udemy_courses", [])]
+    for course in new_udemy_courses:
+        if course.title not in existing_udemy_titles:
+            updated_path["udemy_courses"].append({
+                "title": course.title,
+                "url": course.url,
+                "description": course.description,
+                "rating": course.rating,
+                "price": course.price,
+                "duration": course.duration,
+                "level": course.level
+            })
+    
+    # Update metadata
+    updated_path["total_duration_weeks"] = sum(c.get("duration_weeks", 0) for c in updated_path["learning_path"])
+    updated_path["skill_gaps_addressed"].extend(skills_to_add)
+    updated_path["explanation"] += f"\n\n🆕 Added courses for: {', '.join(skills_to_add)}"
+    
+    return updated_path, new_courses
 
+def remove_courses_from_learning_path(current_path, skills_to_remove):
+    """
+    Remove courses related to specific skills that user already knows
+    """
+    
+    updated_path = current_path.copy()
+    removed_courses = []
+    
+    # Remove internal courses
+    remaining_courses = []
+    for course in updated_path.get("learning_path", []):
+        course_skills = course.get("skills_gained", [])
+        # Check if any of the course skills match skills to remove
+        if any(skill.lower() in [s.lower() for s in course_skills] for skill in skills_to_remove):
+            removed_courses.append(course["title"])
+        else:
+            remaining_courses.append(course)
+    
+    updated_path["learning_path"] = remaining_courses
+    
+    # Remove Udemy courses
+    remaining_udemy = []
+    for course in updated_path.get("udemy_courses", []):
+        # Check if course title or description contains the skills to remove
+        course_text = f"{course.get('title', '')} {course.get('description', '')}".lower()
+        if not any(skill.lower() in course_text for skill in skills_to_remove):
+            remaining_udemy.append(course)
+    
+    updated_path["udemy_courses"] = remaining_udemy
+    
+    # Update metadata
+    updated_path["total_duration_weeks"] = sum(c.get("duration_weeks", 0) for c in updated_path["learning_path"])
+    updated_path["skill_gaps_addressed"] = [s for s in updated_path.get("skill_gaps_addressed", []) 
+                                          if s.lower() not in [skill.lower() for skill in skills_to_remove]]
+    updated_path["explanation"] += f"\n\n🗑️ Removed courses for skills you already know: {', '.join(skills_to_remove)}"
+    
+    return updated_path, removed_courses
 
-# def create_default_result():
-#     """Create a default result structure for error cases"""
-#     return {
-#         "learning_path": [],
-#         "total_duration_weeks": 0,
-#         "explanation": "Error generating learning path. Please try again.",
-#         "skill_gaps_addressed": [],
-#         "progression_notes": "",
-#         "alternative_suggestions": "",
-#         "udemy_courses": []
-#     }
-
-
-# def clear_learning_path_cache():
-#     """Clear the learning path cache - useful for testing or manual refresh"""
-#     if 'learning_path_cache' in st.session_state:
-#         st.session_state.learning_path_cache.clear()
-#         st.success("Learning path cache cleared!")
-
-
-
-
-##############################
-
-
-
-
-# Enhanced user input processing with search capabilities
 def process_enhanced_user_input(user_input):
+    """
+    Enhanced user input processing with intelligent intent detection and incremental learning path updates
+    """
     st.session_state.messages.append({"role": "user", "content": user_input})
     
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
-        message_placeholder.markdown("🔍 Analyzing your request...")
+        message_placeholder.markdown("🤔 Understanding your request...")
     
-    # Detect intents and extract requirements
-    intents = detect_user_intent(user_input)
-    specific_requirements = extract_learning_requirements(user_input)
+    # Get current learning path
+    current_learning_path = st.session_state.get('learning_path', {})
+    conversation_history = st.session_state.get('messages', [])
     
-    # Update learning preferences based on extracted requirements
-    if specific_requirements["time_available_weeks"] > 0:
-        st.session_state.learning_preferences.time_available_weeks = specific_requirements["time_available_weeks"]
+    # Enhanced intent detection using Gemini
+    intent_result = enhanced_intent_detection_with_gemini(user_input, conversation_history, current_learning_path)
     
-    if specific_requirements["mentioned_skills"]:
-        st.session_state.learning_preferences.specific_skills_requested.extend(
-            [skill for skill in specific_requirements["mentioned_skills"] 
-             if skill not in st.session_state.learning_preferences.specific_skills_requested]
+    # Process based on detected intent
+    if intent_result["action_required"] == "ignore_request":
+        response = "I'm focused on helping you with learning and career development. " + intent_result["response_suggestion"]
+    
+    elif intent_result["action_required"] == "ask_clarification":
+        response = f"I need a bit more information to help you better.\n\n"
+        for question in intent_result["clarification_questions"]:
+            response += f"• {question}\n"
+        response += f"\n{intent_result['response_suggestion']}"
+    
+    elif intent_result["action_required"] == "add_courses":
+        message_placeholder.markdown("➕ Adding new courses to your learning path...")
+        
+        skills_to_add = intent_result["extracted_info"].get("skills_to_add", [])
+        if skills_to_add:
+            updated_path, new_courses = add_courses_to_learning_path(
+                current_learning_path, 
+                skills_to_add, 
+                st.session_state.employee_profile, 
+                st.session_state.learning_preferences
+            )
+            st.session_state.learning_path = updated_path
+            
+            # Sync with employee database
+            employee_id = get_current_employee_id()
+            if employee_id:
+                sync_employee_learning_path(employee_id, updated_path)
+            
+            response = f"✅ **Added {len(new_courses)} new courses to your learning path for: {', '.join(skills_to_add)}**\n\n"
+            response += "**New Courses Added:**\n"
+            for course in new_courses:
+                response += f"• **{course['title']}** ({course['duration']}) - {course['reason']}\n"
+            
+            response += f"\n📊 **Updated Path Summary:**\n"
+            response += f"• Total Courses: {len(updated_path['learning_path'])}\n"
+            response += f"• Total Duration: {updated_path['total_duration_weeks']} weeks\n"
+            response += f"• Udemy Courses: {len(updated_path.get('udemy_courses', []))}\n\n"
+            response += "Check the learning path panel to see all your courses!"
+        else:
+            response = "I couldn't identify specific skills to add. Could you please specify which skills you'd like to learn?"
+    
+    elif intent_result["action_required"] == "remove_courses":
+        message_placeholder.markdown("🗑️ Removing courses from your learning path...")
+        
+        skills_to_remove = intent_result["extracted_info"].get("skills_to_remove", [])
+        if skills_to_remove:
+            updated_path, removed_courses = remove_courses_from_learning_path(current_learning_path, skills_to_remove)
+            st.session_state.learning_path = updated_path
+            
+            # Sync with employee database
+            employee_id = get_current_employee_id()
+            if employee_id:
+                sync_employee_learning_path(employee_id, updated_path)
+            
+            response = f"✅ **Removed courses for skills you already know: {', '.join(skills_to_remove)}**\n\n"
+            if removed_courses:
+                response += "**Courses Removed:**\n"
+                for course_title in removed_courses:
+                    response += f"• {course_title}\n"
+            
+            response += f"\n📊 **Updated Path Summary:**\n"
+            response += f"• Total Courses: {len(updated_path['learning_path'])}\n"
+            response += f"• Total Duration: {updated_path['total_duration_weeks']} weeks\n"
+            response += f"• Udemy Courses: {len(updated_path.get('udemy_courses', []))}\n\n"
+            response += "Your learning path has been optimized based on your existing knowledge!"
+        else:
+            response = "I couldn't identify which skills to remove. Could you please specify which skills you already know?"
+    
+    elif intent_result["action_required"] == "regenerate_full_path":
+        message_placeholder.markdown("🔄 Regenerating your complete learning path...")
+        
+        # Extract any new requirements
+        specific_requirements = intent_result["extracted_info"]
+        
+        # Update learning preferences if needed
+        if specific_requirements.get("time_constraint"):
+            st.session_state.learning_preferences.time_available_weeks = specific_requirements["time_constraint"]
+        
+        # Regenerate full path
+        result = generate_enhanced_learning_path_with_sync(
+            st.session_state.employee_profile,
+            st.session_state.learning_preferences,
+            specific_requirements
         )
+        st.session_state.learning_path = result
+        
+        response = f"🔄 **Complete Learning Path Regenerated!**\n\n"
+        response += f"**Reason:** {intent_result['reasoning']}\n\n"
+        response += f"**New Path Summary:**\n"
+        response += f"• Total Courses: {len(result.get('learning_path', []))}\n"
+        response += f"• Total Duration: {result.get('total_duration_weeks', 0)} weeks\n"
+        response += f"• Udemy Courses: {len(result.get('udemy_courses', []))}\n\n"
+        response += f"**Strategy:** {result.get('explanation', '')}"
     
-    # Handle search requests
-    if "search_request" in intents:
+    elif intent_result["action_required"] == "search_web":
         message_placeholder.markdown("🔍 Searching the web for information...")
         
-        # Extract search query
-        search_query = user_input
-        for phrase in ["search for", "find", "look for", "research", "information about"]:
-            if phrase in user_input.lower():
-                search_query = user_input.lower().split(phrase, 1)[1].strip()
-                break
-        
-        # Perform search
+        search_query = intent_result["extracted_info"].get("search_query", user_input)
         search_results = search_agent.search_web(search_query, max_results=5)
         
         if search_results:
@@ -3042,113 +3439,34 @@ def process_enhanced_user_input(user_input):
                 response += f"**{i}. {result['title']}**\n"
                 response += f"🔗 {result['url']}\n"
                 response += f"📝 {result['snippet'][:200]}...\n\n"
-            
-            response += "Would you like me to search for anything else or help create a learning path based on this information?"
+            response += "Would you like me to add any of these topics to your learning path?"
         else:
-            response = f"I couldn't find specific search results for '{search_query}', but I can help you create a learning path or find courses related to your interests. What would you like to learn?"
+            response = f"I couldn't find specific search results for '{search_query}'. Would you like me to suggest some learning resources instead?"
     
-    # Generate response based on intents
-    elif "learning_path_request" in intents or "request_specific_skill" in intents:
-        message_placeholder.markdown("🎯 Creating your personalized learning path...")
+    elif intent_result["action_required"] == "provide_analysis":
+        message_placeholder.markdown("📊 Analyzing your skills and learning path...")
         
-        with st.spinner("Generating learning path and finding Udemy courses..."):
-            result = generate_enhanced_learning_path_with_sync(
-                st.session_state.employee_profile,
-                st.session_state.learning_preferences,
-                specific_requirements
-            )
-            st.session_state.learning_path = result
-            
-            response = f"""🎯 **Personalized Learning Path Created!**
-
-**Analysis Summary:**
-- **Time Constraint:** {specific_requirements['time_available_weeks']} weeks (if specified)
-- **Skills Requested:** {', '.join(specific_requirements['mentioned_skills']) if specific_requirements['mentioned_skills'] else 'Based on your career goals'}
-- **Total Duration:** {result.get('total_duration_weeks', 'N/A')} weeks
-
-**Strategy:** {result.get('explanation', '')}
-
-**Learning Progression:** {result.get('progression_notes', '')}
-
-**Alternative Options:** {result.get('alternative_suggestions', '')}
-
-✨ I've also found {len(result.get('udemy_courses', []))} top-rated Udemy courses that complement your learning path. Check the learning path panel on the right to see all recommendations!"""
-
-    elif "skill_gap_analysis" in intents:
-        message_placeholder.markdown("📊 Analyzing your skill gaps...")
+        # Provide skill gap analysis or learning path analysis
+        response = intent_result["response_suggestion"]
         
-        # Enhanced skill gap analysis with search
-        role_reqs = role_requirements.get(st.session_state.employee_profile["current_role"], {})
-        current_skills = set(st.session_state.employee_profile["skills"])
-        required_skills = set(role_reqs.get("required_skills", []))
-        preferred_skills = set(role_reqs.get("preferred_skills", []))
-        
-        critical_gaps = required_skills - current_skills
-        nice_to_have_gaps = preferred_skills - current_skills
-        
-        response = f"""📊 **Skill Gap Analysis for {st.session_state.employee_profile['current_role']}:**
-
-**🚨 Critical Skills Missing:** {', '.join(critical_gaps) if critical_gaps else 'None - you have all required skills!'}
-
-**💡 Recommended Additional Skills:** {', '.join(nice_to_have_gaps) if nice_to_have_gaps else 'You have excellent coverage!'}
-
-**✅ Your Strengths:** {', '.join(current_skills & (required_skills | preferred_skills))}
-
-Would you like me to create a learning path to address these gaps or search for specific learning resources?"""
-
-        # Perform automatic search for critical gaps
-        if critical_gaps:
-            message_placeholder.markdown("🔍 Searching for learning resources...")
-            
-            gap_skills = list(critical_gaps)[:2]  # Limit to top 2 critical skills
-            search_results_text = ""
-            
-            for skill in gap_skills:
-                search_result = search_agent.search_learning_resources(skill)
-                if search_result['resources']:
-                    search_results_text += f"\n\n**🔍 Learning Resources for {skill}:**\n"
-                    for resource in search_result['resources'][:3]:  # Top 3 per skill
-                        search_results_text += f"• [{resource['title']}]({resource['url']})\n"
-            
-            if search_results_text:
-                response += search_results_text
-
-    else:
-        # General conversational response
-        conversation_context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in st.session_state.messages[-5:]])
-        
-        prompt = f"""
-        You are a learning advisor chatbot with AI search capabilities. Respond helpfully to the user's message.
-        
-        Employee Profile: {st.session_state.employee_profile['current_role']}, Skills: {', '.join(st.session_state.employee_profile['skills'])}
-        Detected Intents: {', '.join(intents)}
-        Extracted Requirements: {json.dumps(specific_requirements)}
-        
-        Recent conversation: {conversation_context}
-        User's message: {user_input}
-        
-        Provide a helpful, conversational response (max 3 sentences). If they mentioned specific skills or time constraints, acknowledge them.
-        If they seem to need search help, offer to search for information. If they need learning guidance, offer to create a learning path.
-        """
-        
-        try:
-            generation_config = {
-            "temperature": 0.1,  # Lower temperature for more consistent output
-            "top_p": 0.8,
-            "top_k": 40,
-            #"max_output_tokens": 2048,
-            }
-        
-            ai_response = gemini_model.generate_content(
-            prompt,
-            generation_config=generation_config
-            )
-            response = ai_response.text
-        except Exception as e:
-            response = "I'm having trouble processing your request right now. Could you try rephrasing it, or would you like me to search for information or create a learning path?"
+        # Add current learning path status if available
+        if current_learning_path:
+            response += f"\n\n📈 **Current Learning Path Status:**\n"
+            response += f"• Active Courses: {len(current_learning_path.get('learning_path', []))}\n"
+            response += f"• Skills Being Developed: {', '.join(current_learning_path.get('skill_gaps_addressed', []))}\n"
+            response += f"• Estimated Completion: {current_learning_path.get('total_duration_weeks', 0)} weeks"
+    
+    else:  # respond_conversationally
+        response = intent_result["response_suggestion"]
+    
+    # Add confidence and reasoning for debugging (optional)
+    if intent_result["confidence"] < 0.7:
+        response += f"\n\n💭 *I'm {int(intent_result['confidence']*100)}% confident in my understanding. If this isn't what you meant, please let me know!*"
     
     st.session_state.messages.append({"role": "assistant", "content": response})
     message_placeholder.markdown(response)
+
+
 
 # Enhanced employee profile update function
 def update_employee_profile():
@@ -3354,7 +3672,7 @@ def enhanced_sidebar():
             additional_skills = st.multiselect(
                 "Additional Skills to Learn",
                 options=sorted(list(all_skills)),
-                default=[],#st.session_state.learning_preferences.specific_skills_requested or [],
+                default=st.session_state.learning_preferences.specific_skills_requested or [],
                 help="Select specific skills you want to focus on"
             )
             st.session_state.learning_preferences.specific_skills_requested = additional_skills
