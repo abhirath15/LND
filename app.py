@@ -156,7 +156,7 @@ def initialize_session_state():
     if 'employee_profile' not in st.session_state:
         st.session_state.employee_profile = {
             "employee_id": "EMP123456",
-            "name": "Alex Johnson",
+            "name": "Aditya Gupta",
             "current_role": "Data Analyst",
             "skills": ["SQL", "Excel", "Data Visualization"],
             "completed_courses": ["Data Analysis Fundamentals", "Excel Advanced"],
@@ -190,7 +190,7 @@ def load_employee_database():
     return {
         "EMP123456": {
             "employee_id": "EMP123456",
-            "name": "Alex Johnson",
+            "name": "Aditya Gupta",
             "current_role": "Data Analyst",
             "skills": ["SQL", "Excel", "Data Visualization"],
             "completed_courses": ["Data Analysis Fundamentals", "Excel Advanced"],
@@ -207,7 +207,7 @@ def load_employee_database():
         },
         "EMP789012": {
             "employee_id": "EMP789012",
-            "name": "Sarah Chen",
+            "name": "Ankita Sharma",
             "current_role": "Junior Data Analyst",
             "skills": ["Excel", "Python"],
             "completed_courses": ["Data Analysis Fundamentals"],
@@ -223,7 +223,7 @@ def load_employee_database():
         },
         "EMP345678": {
             "employee_id": "EMP345678",
-            "name": "Michael Rodriguez",
+            "name": "Rohit Verma",
             "current_role": "Business Analyst",
             "skills": ["Excel"],
             "completed_courses": ["Data Analysis Fundamentals"],
@@ -239,7 +239,7 @@ def load_employee_database():
         },
         "EMP999000": {
             "employee_id": "EMP999000",
-            "name": "Jane Doe",
+            "name": "Ritesh Kumar",
             "current_role": "Software Engineer",
             "skills": ["Python", "Java", "SQL"],
             "completed_courses": ["Object-Oriented Programming"],
@@ -595,8 +595,8 @@ def display_assigned_learning_path(employee_id, employee_data):
     st.markdown(f"### 📚 Current Learning Path for {employee_data['name']}")
     
     assigned_path = employee_data.get('assigned_learning_path')
-    print("yeh par hai")
-    print(assigned_path)
+    # print("yeh par hai")
+    # print(assigned_path)
     if not assigned_path:
         st.info("No learning path assigned yet. Generate one in the 'Generate Learning Path' tab.")
         return
@@ -705,11 +705,11 @@ def admin_hr_portal_page():
     st.markdown("---")
     st.markdown("### 🚀 Generate Default Learning Paths")
 
-    default_path_description = st.text_area(
-        "Default Learning Path Focus (e.g., 'Foundational skills for all roles', 'Data Literacy for everyone')",
-        value="Foundational skills for all employees to enhance data literacy and basic project management.",
-        key="default_lp_focus"
-    )
+    # default_path_description = st.text_area(
+    #     "Default Learning Path Focus (e.g., 'Foundational skills for all roles', 'Data Literacy for everyone')",
+    #     value="Foundational skills for all employees to enhance data literacy and basic project management.",
+    #     key="default_lp_focus"
+    # )
 
     if st.button("✨ Generate Default Learning Paths for ALL Employees", type="primary", key="generate_all_default_lp"):
         with st.spinner("Generating default learning paths for all employees... This may take a moment."):
@@ -3574,7 +3574,7 @@ def update_employee_profile():
             if st.button("🔄 Reset to Default"):
                 st.session_state.employee_profile = {
                     "employee_id": "EMP123456",
-                    "name": "Alex Johnson",
+                    "name": "Aditya Gupta",
                     "current_role": "Data Analyst",
                     "skills": ["SQL", "Excel", "Data Visualization"],
                     "completed_courses": ["Data Analysis Fundamentals", "Excel Advanced"],
