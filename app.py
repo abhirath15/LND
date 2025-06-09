@@ -3254,7 +3254,16 @@ def add_courses_to_learning_path(current_path, skills_to_add, employee_profile, 
             new_udemy_courses = udemy_agent.generate_udemy_courses(skills_to_add, employee_profile["current_role"])
     
     # Update the learning path
-    updated_path = current_path.copy()
+    if current_path:
+        updated_path = current_path.copy()
+    else:
+        updated_path = {}
+        updated_path["learning_path"] = []
+        updated_path["udemy_courses"] = []
+        updated_path["total_duration_weeks"] = 0
+        updated_path["skill_gaps_addressed"] = []
+        updated_path["explanation"] = ""
+    
     updated_path["learning_path"].extend(new_courses)
     
     # Add new Udemy courses (avoid duplicates)
